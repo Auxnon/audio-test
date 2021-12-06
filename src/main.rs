@@ -1,9 +1,13 @@
+use std::sync::{Arc, Mutex};
+
 use byte_slice_cast::AsByteSlice;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     Sample,
 };
 use fluidlite::{Settings, Synth};
+#[macro_use]
+extern crate lazy_static;
 #[derive(Debug)]
 struct Opt {
     #[cfg(all(
@@ -13,6 +17,10 @@ struct Opt {
     jack: bool,
 
     device: String,
+}
+
+lazy_static! {
+    static ref buffer: [i16; 44100 * 2] = [0i16; 44100 * 2];
 }
 
 impl Opt {
@@ -87,34 +95,31 @@ fn main() -> anyhow::Result<()> {
     let synth = Synth::new(settings).unwrap();
     synth.sfload("Nintendo_64_ver_3.0.sf2", true).unwrap();
 
-    static mut buffer: [i16; 44100 * 2] = [0i16; 44100 * 2];
+    //static buffer: Arc<Mutex<[i16; 44100 * 2]>> = Arc::new(Mutex::new([0i16; 44100 * 2]));
     //let mut file = File::create("soundfont-sample.pcm").unwrap();
+    synth.note_on(0, 10, 127).unwrap();
+    synth.write(buffer.as_mut()).unwrap();
 
-    unsafe {
-        synth.note_on(0, 60, 127).unwrap();
-        synth.write(buffer.as_mut()).unwrap();
+    //file.write(buffer.as_byte_slice()).unwrap();
 
-        //file.write(buffer.as_byte_slice()).unwrap();
+    synth.note_on(0, 50, 127).unwrap();
+    synth.write(buffer.as_mut()).unwrap();
+    //file.write(buffer.as_byte_slice()).unwrap();
 
-        synth.note_on(0, 50, 127).unwrap();
-        synth.write(buffer.as_mut()).unwrap();
-        //file.write(buffer.as_byte_slice()).unwrap();
+    synth.note_off(0, 10).unwrap();
+    synth.write(buffer.as_mut()).unwrap();
 
-        synth.note_off(0, 60).unwrap();
-        synth.write(buffer.as_mut()).unwrap();
-
-        match config.sample_format() {
-            cpal::SampleFormat::F32 => run::<f32>(&device, &config.into(), buffer.as_byte_slice()),
-            cpal::SampleFormat::I16 => run::<i16>(&device, &config.into(), buffer.as_byte_slice()),
-            cpal::SampleFormat::U16 => run::<u16>(&device, &config.into(), buffer.as_byte_slice()),
-        }
+    match config.sample_format() {
+        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into(), buffer),
+        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into(), buffer),
+        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into(), buffer),
     }
 }
 
 pub fn run<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
-    buffer: &'static [u8],
+    bufferIn: &'static [i16],
 ) -> Result<(), anyhow::Error>
 where
     T: cpal::Sample,
@@ -130,7 +135,7 @@ where
     //     (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
     // };
 
-    println!("size {}", buffer.len());
+    println!("size {}", bufferIn.len());
     // for b in buffer.as_byte_slice() {
     //     println!("buffer {}", b);
     // }
@@ -142,7 +147,7 @@ where
         // println!("byte {}", b.len());
         //let f = [(sample_clock) as usize] as f32;
         //println!("f {}", f);
-        ((buffer[(2 * sample_clock as usize)]) as f32) / 128.
+        ((bufferIn[(2 * sample_clock as usize)]) as f32) / 128.
         //(sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
     };
 
