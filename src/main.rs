@@ -5,7 +5,7 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     Sample,
 };
-use fluidlite::{Settings, Synth};
+
 #[macro_use]
 extern crate lazy_static;
 #[derive(Debug)]
@@ -90,37 +90,14 @@ fn main() -> anyhow::Result<()> {
     let config = device.default_output_config().unwrap();
     println!("Default output config: {:?}", config);
 
-    let settings = Settings::new().unwrap();
-
-    let synth = Synth::new(settings).unwrap();
-    synth.sfload("Nintendo_64_ver_3.0.sf2", true).unwrap();
-
-    //static buffer: Arc<Mutex<[i16; 44100 * 2]>> = Arc::new(Mutex::new([0i16; 44100 * 2]));
-    //let mut file = File::create("soundfont-sample.pcm").unwrap();
-    synth.note_on(0, 10, 127).unwrap();
-    synth.write(buffer.as_mut()).unwrap();
-
-    //file.write(buffer.as_byte_slice()).unwrap();
-
-    synth.note_on(0, 50, 127).unwrap();
-    synth.write(buffer.as_mut()).unwrap();
-    //file.write(buffer.as_byte_slice()).unwrap();
-
-    synth.note_off(0, 10).unwrap();
-    synth.write(buffer.as_mut()).unwrap();
-
     match config.sample_format() {
-        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into(), buffer),
-        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into(), buffer),
-        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into(), buffer),
+        cpal::SampleFormat::F32 => run::<f32>(&device, &config.into()),
+        cpal::SampleFormat::I16 => run::<i16>(&device, &config.into()),
+        cpal::SampleFormat::U16 => run::<u16>(&device, &config.into()),
     }
 }
 
-pub fn run<T>(
-    device: &cpal::Device,
-    config: &cpal::StreamConfig,
-    bufferIn: &'static [i16],
-) -> Result<(), anyhow::Error>
+pub fn run<T>(device: &cpal::Device, config: &cpal::StreamConfig) -> Result<(), anyhow::Error>
 where
     T: cpal::Sample,
 {
@@ -135,7 +112,6 @@ where
     //     (sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
     // };
 
-    println!("size {}", bufferIn.len());
     // for b in buffer.as_byte_slice() {
     //     println!("buffer {}", b);
     // }
@@ -146,9 +122,48 @@ where
         //let b = buffer.as_chunks()
         // println!("byte {}", b.len());
         //let f = [(sample_clock) as usize] as f32;
-        //println!("f {}", f);
-        ((bufferIn[(2 * sample_clock as usize)]) as f32) / 128.
-        //(sample_clock * 440.0 * 2.0 * std::f32::consts::PI / sample_rate).sin()
+
+        // ((bufferIn[(2 * sample_clock as usize)]) as f32) / 128.
+        let t = sample_clock * 2.0 * std::f32::consts::PI / sample_rate; //*440.
+                                                                         //println!("t {}", t);
+
+        //sine
+        //(t).sin()
+        let freq = 6.0; // + t / 2000.;
+
+        let a = 2.;
+        let p = 4.;
+
+        //triangle
+        /*
+
+        (4. * a / p) * (((t - p / 4.) % p) - p / 2.).abs() - a
+        */
+        //square
+        /*
+        if (t * 1.8) % std::f32::consts::PI > 1. {
+            1.
+        } else {
+            0.
+        }*/
+
+        //cool small fourier series
+        //t.sin() - (2. * t).sin() / 2.
+
+        //sawtooth
+        // t.sin() - (2. * t).sin() / 2. + (3. * t).sin() / 3. - (4. * t).sin() / 4.
+        //     + (5. * t).sin() / 5.;
+
+        // const pi: f32 = std::f32::consts::PI;
+        // -0.25 * (3. * t * pi).sin() + 0.25 * (pi * t).sin() + (t * pi).cos() * 3f32.sqrt() / 2.
+
+        let s = pia(freq, t, 1., 1.)
+            + pia(freq, t, 2., 2.)
+            + pia(freq, t, 3., 4.)
+            + pia(freq, t, 4., 8.)
+            + pia(freq, t, 5., 16.)
+            + pia(freq, t, 6., 32.);
+        s * s * s
     };
 
     let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
@@ -162,11 +177,17 @@ where
     )?;
     stream.play()?;
 
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    std::thread::sleep(std::time::Duration::from_millis(3000));
 
     Ok(())
 }
 
+fn pia(freq: f32, t: f32, a: f32, b: f32) -> f32 {
+    let frequency = freq;
+    (a * 2. * std::f32::consts::PI * frequency * t).sin()
+        * (-0.0004 * 2. * std::f32::consts::PI * frequency * t).exp()
+        / b
+}
 fn write_data<T>(output: &mut [T], channels: usize, next_sample: &mut dyn FnMut() -> f32)
 where
     T: cpal::Sample,
